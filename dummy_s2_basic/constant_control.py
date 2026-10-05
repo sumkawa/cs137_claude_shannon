@@ -44,6 +44,9 @@ class Heartbeat(Node):
         self.motor_sub = self.create_subscription(String, "/health/motor",
                                                   self.health_callback, 10)
 
+        self.twist_sub = self.create_subscription(String, "/health/motor",
+                                                  self.twist_listener, 10)
+
     def hb_callback(self) -> None:
 				""" heartbeat callback triggered by the timer """
         # construct heartbeat message
@@ -61,6 +64,10 @@ class Heartbeat(Node):
         # publish heartbeat counter
         self.twist_pub.publish(msg)
         # counter increment
+
+    def twist_listener(self, msg:Twist):
+        if msg.data:
+            print(msg.data)
 
 
     def health_callback(self, msg: Bool) -> None:
