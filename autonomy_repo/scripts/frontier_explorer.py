@@ -40,6 +40,7 @@ class FrontierExplorer(Node):
         self.goal_active = False
         self.done = False
         self.failed_goals = []
+        self.failed_goal_timeout = 30.0
 
         self.map_sub = self.create_subscription(OccupancyGrid, "/map", self.map_callback, 10)
         self.state_sub = self.create_subscription(TurtleBotState, "/state", self.state_callback, 10)
@@ -66,10 +67,12 @@ class FrontierExplorer(Node):
     def nav_success_callback(self, msg: Bool) -> None:
         if not msg.data and self.last_goal is not None:
             self.get_logger().warn("Navigation failed, trying a different frontier")
-            self.failed_goals.append(self.last_goal)
+            now = self.get_clock().now().nanoseconds / 1e9
+            self.failed_goals.append((self.last_goal, now))
         self.goal_active = False
         if self.stop_until is None:
             self.send_next_goal()
+
 
     def timer_callback(self) -> None:
         now = self.get_clock().now().nanoseconds / 1e9
@@ -91,7 +94,7 @@ class FrontierExplorer(Node):
             self.send_next_goal()
 
     def detector_callback(self, msg: Bool) -> None:
-        now = self.get_clock().now().nanoseconds / 139
+        now = self.get_clock().now().nanoseconds / 1e9
 
         if not msg.data:
             if self.sign_clear_since is None:
@@ -136,16 +139,25 @@ class FrontierExplorer(Node):
         frontier = self.explore()
         current = np.array([self.state.x, self.state.y])
 
+        now = self.get_clock().now().nanoseconds / 1e9
+        self.failed_goals = [
+            (goal, failed_at)
+            for goal, failed_at in self.failed_goals
+            if now - failed_at < self.failed_goal_timeout
+        ]
+
         # drop frontiers that are too close, or near goals that already failed
         if len(frontier) > 0:
             dists = np.linalg.norm(frontier - current, axis=1)
             keep = dists >= self.get_parameter("min_goal_dist").value
-            for g in self.failed_goals:
+            for g, _ in self.failed_goals:
                 keep &= np.linalg.norm(frontier - g, axis=1) >= self.get_parameter("fail_radius").value
             frontier, dists = frontier[keep], dists[keep]
 
+
+
         if len(frontier) == 0:
-            self.get_logger().info("No frontier states left: exploration finished")
+            self.get_logger().info("No usable frontiers: waiting for map update")
             self.done = True
             self.last_goal = None
             return
