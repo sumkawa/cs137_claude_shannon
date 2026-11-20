@@ -13,6 +13,7 @@ install(PROGRAMS
     scripts/heading_controller.py
     scripts/perception_controller.py
     scripts/frontier_explorer.py
+    scripts/navigator.py
     DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -20,6 +20,14 @@ class FrontierExplorer(Node):
     def __init__(self) -> None:
         super().__init__("frontier_explorer")
 
+        self.stop_until = None
+        self.detector_sub = self.create_subscription(
+            Bool, "/detector_bool", self.detector_callback, 10
+        )
+
+        self.sign_seen = False
+        self.pause_pub = self.create_publisher(Bool, "/exploration_pause", 10)
+        
         # parameters
         self.declare_parameter("window_size", 13)       # frontier window side length [cells]
         self.declare_parameter("min_goal_dist", 0.5)    # ignore frontiers closer than this [m]
@@ -48,6 +56,7 @@ class FrontierExplorer(Node):
             window_size=9,
             probs=msg.data,
         )
+        self.done = False
 
     def state_callback(self, msg: TurtleBotState) -> None:
         self.state = msg
@@ -57,11 +66,35 @@ class FrontierExplorer(Node):
             self.get_logger().warn("Navigation failed, trying a different frontier")
             self.failed_goals.append(self.last_goal)
         self.goal_active = False
-        self.send_next_goal()
+        if self.stop_until is None:
+            self.send_next_goal()
 
     def timer_callback(self) -> None:
+        if self.stop_until is not None:
+            now = self.get_clock().now().nanoseconds / 1e9
+            if now < self.stop_until:
+                return
+
+            self.stop_until = None
+            self.pause_pub.publish(Bool(data=False))
+            self.get_logger().info("Resuming exploration")
+
         if not self.goal_active and not self.done:
             self.send_next_goal()
+
+    def detector_callback(self, msg: Bool) -> None:
+        if not msg.data:
+            self.sign_seen = False
+            return
+
+        if self.sign_seen or self.stop_until is not None:
+            return
+
+        self.sign_seen = True
+        now = self.get_clock().now().nanoseconds / 1e9
+        self.stop_until = now + 5.0
+        self.pause_pub.publish(Bool(data=True))
+        self.get_logger().info("Stop sign detected; pausing for 5 seconds")
 
     # ---------------- exploration ----------------
     def explore(self) -> np.ndarray:

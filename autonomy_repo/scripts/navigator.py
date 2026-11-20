@@ -6,7 +6,7 @@ from asl_tb3_lib.navigation import BaseNavigator, TrajectoryPlan
 from asl_tb3_lib.math_utils import wrap_angle
 from asl_tb3_msgs.msg import TurtleBotControl, TurtleBotState
 from asl_tb3_lib.grids import StochOccupancyGrid2D
-
+from std_msgs.msg import Bool
 from scipy.interpolate import splev, splrep
 
 
@@ -209,6 +209,8 @@ class DetOccupancyGrid2D(object):
 class Navigator(BaseNavigator):
     def __init__(self) -> None:
         super().__init__()
+        self.exploration_paused = False
+        self.pause_sub = self.create_subscription(Bool, "/exploration_pause", self.pause_callback, 10)
         self.kp = 2.0 # gain initialization
 
         self.kpx = 2.0
@@ -291,6 +293,25 @@ class Navigator(BaseNavigator):
             duration=ts[-1],
         )
 
+    def pause_callback(self, msg: Bool) -> None:
+        if msg.data and not self.exploration_paused:
+            self.exploration_paused = True
+            self.stop()
+            self.get_logger().info("Navigation paused")
+
+        elif not msg.data and self.exploration_paused:
+            self.exploration_paused = False
+            self.get_logger().info("Navigation resumed")
+
+            # Replan because the old trajectory's clock continued while stopped.
+            if self.goal is not None:
+                self.replan(self.goal)
+
+    def compute_control(self) -> TurtleBotControl:
+        if self.exploration_paused:
+            return TurtleBotControl()  # Zero linear and angular velocity
+
+        return super().compute_control()
 
 
 
