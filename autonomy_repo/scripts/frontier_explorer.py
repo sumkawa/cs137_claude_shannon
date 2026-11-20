@@ -24,6 +24,8 @@ class FrontierExplorer(Node):
         self.detector_sub = self.create_subscription(
             Bool, "/detector_bool", self.detector_callback, 10
         )
+        self.sign_clear_since = None
+        self.sign_clear_duration = 2.0
 
         self.sign_seen = False
         self.pause_pub = self.create_publisher(Bool, "/exploration_pause", 10)
@@ -70,6 +72,12 @@ class FrontierExplorer(Node):
             self.send_next_goal()
 
     def timer_callback(self) -> None:
+        now = self.get_clock().now().nanoseconds / 1e9
+
+        if (self.sign_seen and self.sign_clear_since is not None and now - self.sign_clear_since >= self.sign_clear_duration):
+            self.sign_seen = False
+            self.sign_clear_since = None
+
         if self.stop_until is not None:
             now = self.get_clock().now().nanoseconds / 1e9
             if now < self.stop_until:
@@ -83,15 +91,19 @@ class FrontierExplorer(Node):
             self.send_next_goal()
 
     def detector_callback(self, msg: Bool) -> None:
+        now = self.get_clock().now().nanoseconds / 139
+
         if not msg.data:
-            self.sign_seen = False
+            if self.sign_clear_since is None:
+                self.sign_clear_since = now
             return
+
+        self.sign_clear_since = None
 
         if self.sign_seen or self.stop_until is not None:
             return
 
         self.sign_seen = True
-        now = self.get_clock().now().nanoseconds / 1e9
         self.stop_until = now + 5.0
         self.pause_pub.publish(Bool(data=True))
         self.get_logger().info("Stop sign detected; pausing for 5 seconds")

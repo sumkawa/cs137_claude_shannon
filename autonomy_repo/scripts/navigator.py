@@ -212,7 +212,7 @@ class Navigator(BaseNavigator):
         self.exploration_paused = False
         self.pause_sub = self.create_subscription(Bool, "/exploration_pause", self.pause_callback, 10)
         self.kp = 2.0 # gain initialization
-
+        self.resume_goal = None
         self.kpx = 2.0
         self.kpy = 2.0
         self.kdx = 2.0
@@ -296,6 +296,10 @@ class Navigator(BaseNavigator):
     def pause_callback(self, msg: Bool) -> None:
         if msg.data and not self.exploration_paused:
             self.exploration_paused = True
+
+            # Only remember a goal if navigation was active.
+            self.resume_goal = self.goal if self.is_planned else None
+
             self.stop()
             self.get_logger().info("Navigation paused")
 
@@ -303,9 +307,11 @@ class Navigator(BaseNavigator):
             self.exploration_paused = False
             self.get_logger().info("Navigation resumed")
 
-            # Replan because the old trajectory's clock continued while stopped.
-            if self.goal is not None:
-                self.replan(self.goal)
+            goal = self.resume_goal
+            self.resume_goal = None
+
+            if goal is not None:
+                self.replan(goal)
 
     def compute_control(self) -> TurtleBotControl:
         if self.exploration_paused:
